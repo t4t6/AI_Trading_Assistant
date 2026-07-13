@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Watchlist - AI Trading Assistant</title>
+<link rel="manifest" href="manifest.json">
+<link rel="stylesheet" href="css/style.css">
+<meta name="theme-color" content="#0f172a">
+</head>
+<body>
+<div class="container">
+
+<header>
+  <div class="logo">⭐ Watchlist</div>
+</header>
+
+<div class="watch-add">
+  <select id="addSymbolSelect"></select>
+  <button id="addBtn">Add</button>
+</div>
+
+<div id="watchListContainer">
+  <div class="empty-msg">Loading...</div>
+</div>
+
+<nav class="bottom-nav">
+  <a href="index.html">Dashboard</a>
+  <a href="watchlist.html" class="active">Watchlist</a>
+  <a href="settings.html">Settings</a>
+</nav>
+
+</div>
+<script src="js/common.js"></script>
+<script>
+const addSelect = document.getElementById("addSymbolSelect");
+const container = document.getElementById("watchListContainer");
+
+allSymbolsFlat().forEach((sym) => {
+  const opt = document.createElement("option");
+  opt.value = sym;
+  opt.textContent = sym;
+  addSelect.appendChild(opt);
+});
+
+async function loadWatchlist() {
+  container.innerHTML = '<div class="empty-msg">Loading...</div>';
+  try {
+    const res = await fetch(getApiBase() + "/watchlist");
+    const items = await res.json();
+
+    if (!items.length) {
+      container.innerHTML = '<div class="empty-msg">No symbols yet — add one above.</div>';
+      return;
+    }
+
+    container.innerHTML = "";
+    for (const item of items) {
+      const row = document.createElement("div");
+      row.className = "watch-item";
+      row.innerHTML = `
+        <div>
+          <div class="sym">${item.symbol}</div>
+          <div class="market">${item.market_type}</div>
+        </div>
+        <button class="remove-btn" data-symbol="${item.symbol}">✕</button>
+      `;
+      container.appendChild(row);
+    }
+
+    container.querySelectorAll(".remove-btn").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        await fetch(getApiBase() + "/watchlist/" + btn.dataset.symbol, { method: "DELETE" });
+        loadWatchlist();
+      });
+    });
+  } catch (e) {
+    container.innerHTML = '<div class="empty-msg">Could not reach backend. Check Settings.</div>';
+  }
+}
+
+document.getElementById("addBtn").addEventListener("click", async () => {
+  try {
+    await fetch(getApiBase() + "/watchlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: addSelect.value }),
+    });
+    loadWatchlist();
+  } catch (e) {
+    alert("Could not reach backend. Check Settings.");
+  }
+});
+
+loadWatchlist();
+</script>
+</body>
+</html>
