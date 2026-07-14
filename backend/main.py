@@ -65,7 +65,10 @@ def signal(symbol: str, timeframe: str):
     if get_asset_info(symbol) is None:
         return {"status": False, "message": f"Unknown symbol '{symbol}'."}
 
-    return SignalEngine.generate(symbol=symbol, timeframe=timeframe)
+    try:
+        return SignalEngine.generate(symbol=symbol, timeframe=timeframe)
+    except Exception as e:
+        return {"status": False, "symbol": symbol, "message": f"Signal generation failed: {e}"}
 
 
 @app.post("/signals")
@@ -91,7 +94,10 @@ def binary_signal(symbol: str, timeframe: str):
     if get_asset_info(symbol) is None:
         return {"status": False, "message": f"Unknown symbol '{symbol}'."}
 
-    return SignalEngine.generate_binary(symbol=symbol, timeframe=timeframe)
+    try:
+        return SignalEngine.generate_binary(symbol=symbol, timeframe=timeframe)
+    except Exception as e:
+        return {"status": False, "symbol": symbol, "message": f"Signal generation failed: {e}"}
 
 
 # ============================================

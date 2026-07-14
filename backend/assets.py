@@ -59,27 +59,30 @@ CRYPTO = [
 
 FAVORITES_DEFAULT = ["EURUSD", "GBPUSD", "XAUUSD", "BTCUSDT", "ETHUSDT"]
 
-# Maps our display symbol -> (source, fetch_symbol)
-# source "binance": live via Binance public REST (no key, truly real-time)
-# source "yfinance": via Yahoo Finance (free, ~15min effective delay on many symbols)
+# Maps our display symbol -> Twelve Data fetch symbol (format: BASE/QUOTE)
+# One provider for everything avoids the two separate cloud-blocking issues
+# (Yahoo Finance blocking datacenter IPs, Binance.com blocking US-region IPs).
 SYMBOL_MAP = {}
 
 for sym, desc in FOREX_MAJORS + FOREX_MINORS:
-    SYMBOL_MAP[sym] = {"source": "yfinance", "fetch": f"{sym}=X", "market": "FOREX", "description": desc}
+    base, quote = sym[:3], sym[3:]
+    SYMBOL_MAP[sym] = {"source": "twelvedata", "fetch": f"{base}/{quote}", "market": "FOREX", "description": desc}
 
-_COMMODITY_YF = {
-    "XAUUSD": "GC=F",
-    "XAGUSD": "SI=F",
-    "WTIUSD": "CL=F",
-    "BRENTUSD": "BZ=F",
-    "NGASUSD": "NG=F",
-    "COPPERUSD": "HG=F",
+_COMMODITY_TD = {
+    "XAUUSD": "XAU/USD",
+    "XAGUSD": "XAG/USD",
+    "WTIUSD": "WTI/USD",
+    "BRENTUSD": "BRENT/USD",
+    "NGASUSD": "NATGAS/USD",
+    "COPPERUSD": "COPPER/USD",
 }
 for sym, desc in COMMODITIES:
-    SYMBOL_MAP[sym] = {"source": "yfinance", "fetch": _COMMODITY_YF[sym], "market": "COMMODITY", "description": desc}
+    SYMBOL_MAP[sym] = {"source": "twelvedata", "fetch": _COMMODITY_TD[sym], "market": "COMMODITY", "description": desc}
 
 for sym, desc in CRYPTO:
-    SYMBOL_MAP[sym] = {"source": "binance", "fetch": sym, "market": "CRYPTO", "description": desc}
+    base = sym.replace("USDT", "")
+    SYMBOL_MAP[sym] = {"source": "twelvedata", "fetch": f"{base}/USD", "market": "CRYPTO", "description": desc}
+
 
 
 def get_asset_info(symbol):

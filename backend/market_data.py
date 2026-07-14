@@ -1,34 +1,31 @@
-import time
+import os
+import logging
 import requests
 import pandas as pd
-import yfinance as yf
 
 from assets import get_asset_info
 
-BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+TWELVEDATA_URL = "https://api.twelvedata.com/time_series"
+TWELVEDATA_API_KEY = os.environ.get("TWELVEDATA_API_KEY", "")
 
-# Binance interval strings line up 1:1 with our timeframe names
-BINANCE_INTERVALS = {"1m", "3m", "5m", "15m", "30m", "1h", "4h", "1d"}
-
-# yfinance (period, interval) per requested timeframe.
-# yfinance has no native 3m or 4h interval, so those are derived below.
-YF_INTERVAL_MAP = {
-    "1m": ("7d", "1m"),
-    "3m": ("60d", "5m"),    # approximated from 5m bars (Yahoo has no 3m)
-    "5m": ("60d", "5m"),
-    "15m": ("60d", "15m"),
-    "30m": ("60d", "30m"),
-    "1h": ("730d", "1h"),
-    "4h": ("730d", "1h"),   # resampled to true 4h candles below
-    "1d": ("10y", "1d"),
+# Our timeframe name -> Twelve Data interval string
+TD_INTERVAL_MAP = {
+    "1m": "1min",
+    "3m": None,      # not natively supported, derived by resampling 1min bars below
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "1h": "1h",
+    "4h": "4h",
+    "1d": "1day",
 }
 
 
 class MarketData:
     """
-    Single entry point for OHLCV data.
-    Routes crypto -> Binance (truly live, no key).
-    Routes forex/commodities -> Yahoo Finance (free, delayed ~15min on many symbols).
+    Single entry point for OHLCV data — everything routes through Twelve Data
+    (forex, commodities, and crypto), since free cloud hosts are frequently
+    blocked by Yahoo Finance and by Binance's US-region restriction.
     Always returns a DataFrame with columns: Open, High, Low, Close, Volume
     """
 
@@ -38,72 +35,58 @@ class MarketData:
         if info is None:
             return None
 
-        if info["source"] == "binance":
-            return MarketData._from_binance(info["fetch"], timeframe)
-        else:
-            return MarketData._from_yfinance(info["fetch"], timeframe)
+        return MarketData._from_twelvedata(info["fetch"], timeframe)
 
-    # ------------------------------------------------------------------
-    # Binance — real-time, no API key required
-    # ------------------------------------------------------------------
     @staticmethod
-    def _from_binance(fetch_symbol, timeframe):
-        interval = timeframe if timeframe in BINANCE_INTERVALS else "1h"
+    def _from_twelvedata(fetch_symbol, timeframe):
+        if not TWELVEDATA_API_KEY:
+            logging.error("TWELVEDATA_API_KEY is not set on the server.")
+            return None
+
+        interval = TD_INTERVAL_MAP.get(timeframe, "1h")
+        needs_resample = interval is None
+        query_interval = "1min" if needs_resample else interval
 
         params = {
             "symbol": fetch_symbol,
-            "interval": interval,
-            "limit": 500,
+            "interval": query_interval,
+            "outputsize": 1000 if needs_resample else 500,
+            "apikey": TWELVEDATA_API_KEY,
         }
 
-        resp = requests.get(BINANCE_KLINES_URL, params=params, timeout=10)
-        resp.raise_for_status()
-        raw = resp.json()
-
-        if not raw:
+        try:
+            resp = requests.get(TWELVEDATA_URL, params=params, timeout=15)
+            data = resp.json()
+        except Exception as e:
+            logging.error(f"Twelve Data request failed for {fetch_symbol}: {e}")
             return None
 
-        df = pd.DataFrame(raw, columns=[
-            "open_time", "Open", "High", "Low", "Close", "Volume",
-            "close_time", "quote_asset_volume", "trades",
-            "taker_buy_base", "taker_buy_quote", "ignore"
-        ])
+        if data.get("status") == "error" or "values" not in data:
+            logging.error(f"Twelve Data error for {fetch_symbol}: {data.get('message', data)}")
+            return None
 
-        for col in ["Open", "High", "Low", "Close", "Volume"]:
+        values = data["values"]
+        if not values:
+            return None
+
+        df = pd.DataFrame(values)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+
+        for col in ["Open", "High", "Low", "Close"]:
             df[col] = df[col].astype(float)
+        df["Volume"] = df["Volume"].astype(float) if "Volume" in df.columns else 0.0
 
-        df = df[["Open", "High", "Low", "Close", "Volume"]].reset_index(drop=True)
-        return df
+        # Twelve Data returns newest-first; flip to chronological order
+        df = df.iloc[::-1].reset_index(drop=True)
 
-    # ------------------------------------------------------------------
-    # Yahoo Finance — free, no key, delayed for many symbols
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _from_yfinance(fetch_symbol, timeframe):
-        period, interval = YF_INTERVAL_MAP.get(timeframe, ("730d", "1h"))
+        if needs_resample:
+            df["datetime"] = pd.to_datetime([v["datetime"] for v in values[::-1]])
+            df = df.set_index("datetime").resample("3min").agg({
+                "Open": "first", "High": "max", "Low": "min",
+                "Close": "last", "Volume": "sum",
+            }).dropna().reset_index(drop=True)
 
-        df = yf.download(
-            fetch_symbol,
-            period=period,
-            interval=interval,
-            auto_adjust=True,
-            progress=False,
-        )
-
-        if df is None or len(df) == 0:
-            return None
-
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        if timeframe == "4h":
-            df = df.resample("4h").agg({
-                "Open": "first",
-                "High": "max",
-                "Low": "min",
-                "Close": "last",
-                "Volume": "sum",
-            }).dropna()
-
-        df = df.reset_index(drop=True)
         return df
