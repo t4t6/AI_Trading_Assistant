@@ -40,7 +40,11 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"status": "OK"}
+    import os
+    return {
+        "status": "OK",
+        "twelvedata_key_configured": bool(os.environ.get("TWELVEDATA_API_KEY")),
+    }
 
 
 @app.get("/timeframes")
