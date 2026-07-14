@@ -33,7 +33,7 @@ class MarketData:
     def get_data(symbol, timeframe):
         info = get_asset_info(symbol)
         if info is None:
-            return None
+            return None, f"Unknown symbol '{symbol}'."
 
         return MarketData._from_twelvedata(info["fetch"], timeframe)
 
@@ -41,7 +41,7 @@ class MarketData:
     def _from_twelvedata(fetch_symbol, timeframe):
         if not TWELVEDATA_API_KEY:
             logging.error("TWELVEDATA_API_KEY is not set on the server.")
-            return None
+            return None, "Server is missing TWELVEDATA_API_KEY."
 
         interval = TD_INTERVAL_MAP.get(timeframe, "1h")
         needs_resample = interval is None
@@ -59,15 +59,16 @@ class MarketData:
             data = resp.json()
         except Exception as e:
             logging.error(f"Twelve Data request failed for {fetch_symbol}: {e}")
-            return None
+            return None, f"Request to Twelve Data failed: {e}"
 
         if data.get("status") == "error" or "values" not in data:
-            logging.error(f"Twelve Data error for {fetch_symbol}: {data.get('message', data)}")
-            return None
+            reason = data.get("message", str(data))
+            logging.error(f"Twelve Data error for {fetch_symbol}: {reason}")
+            return None, f"Twelve Data: {reason}"
 
         values = data["values"]
         if not values:
-            return None
+            return None, "Twelve Data returned no candles for this symbol/interval."
 
         df = pd.DataFrame(values)
         df = df.rename(columns={
@@ -89,4 +90,4 @@ class MarketData:
                 "Close": "last", "Volume": "sum",
             }).dropna().reset_index(drop=True)
 
-        return df
+        return df, None

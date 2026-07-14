@@ -15,12 +15,15 @@ class SignalEngine:
 
     @staticmethod
     def download(symbol, timeframe):
-        df = MarketData.get_data(symbol, timeframe)
+        df, error = MarketData.get_data(symbol, timeframe)
 
-        if df is None or len(df) < 30:
-            return None
+        if df is None:
+            return None, error or "No data returned."
 
-        return df
+        if len(df) < 30:
+            return None, "Not enough candles returned to analyze (need at least 30)."
+
+        return df, None
 
     # ============================================
     # ATR Based Targets
@@ -114,7 +117,7 @@ class SignalEngine:
 
         for tf in MTF_FRAMES:
             try:
-                df = SignalEngine.download(symbol, tf)
+                df, error = SignalEngine.download(symbol, tf)
                 if df is None:
                     continue
 
@@ -141,14 +144,14 @@ class SignalEngine:
 
     @staticmethod
     def generate(symbol, timeframe, include_alignment=True):
-        df = SignalEngine.download(symbol, timeframe)
+        df, error = SignalEngine.download(symbol, timeframe)
 
         if df is None:
             return {
                 "status": False,
                 "symbol": symbol,
                 "timeframe": timeframe,
-                "message": "No data returned for this symbol/timeframe.",
+                "message": error or "No data returned for this symbol/timeframe.",
             }
 
         df = IndicatorEngine.calculate(df)
@@ -185,14 +188,14 @@ class SignalEngine:
 
     @staticmethod
     def generate_binary(symbol, timeframe):
-        df = SignalEngine.download(symbol, timeframe)
+        df, error = SignalEngine.download(symbol, timeframe)
 
         if df is None:
             return {
                 "status": False,
                 "symbol": symbol,
                 "timeframe": timeframe,
-                "message": "No data returned for this symbol/timeframe.",
+                "message": error or "No data returned for this symbol/timeframe.",
             }
 
         df = IndicatorEngine.calculate(df)
